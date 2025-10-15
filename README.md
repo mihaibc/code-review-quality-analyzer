@@ -4,7 +4,7 @@ emoji: 🧠
 colorFrom: purple
 colorTo: indigo
 sdk: gradio
-sdk_version: "5.0.0"
+sdk_version: "5.49.1"
 app_file: app.py
 pinned: false
 ---
@@ -21,7 +21,7 @@ A Hugging Face Space (Gradio) app that classifies individual code review comment
 
 ## Quickstart (Local)
 1. Create and activate a Python 3.9+ virtual environment.
-2. Install dependencies:
+2. Install dependencies (Gradio is pinned to 5.49.1):
    ```bash
    pip install -r requirements.txt
    ```
@@ -30,6 +30,8 @@ A Hugging Face Space (Gradio) app that classifies individual code review comment
    python app.py
    ```
 4. Open the local Gradio URL printed in the terminal and submit a comment or GitHub link.
+
+Note: The project pins Gradio to version 5.49.1 in `requirements.txt`, and the Space is configured with `sdk_version: 5.49.1` in `huggingface.yml` to ensure consistent behavior across local and cloud deployments.
 
 ### Optional environment variables
 - `GITHUB_TOKEN` – supply a personal access token to increase GitHub rate limits when fetching comments via URL. This can be set locally or by adding a Space secret on Hugging Face.

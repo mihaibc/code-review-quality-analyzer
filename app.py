@@ -1,3 +1,13 @@
+"""Code Review Quality Analyzer (Gradio / HF Spaces)
+
+This app classifies a single code review comment by:
+  - Feedback Type: Logic/Bug, Suggestion, Style/Nitpick, Question, Praise
+  - Sentiment: Positive, Neutral, Negative
+
+It uses a zero-shot classifier (`facebook/bart-large-mnli`) so it runs on CPU.
+You can paste comment text directly, or fetch from a GitHub PR comment URL.
+"""
+
 import os
 import re
 from functools import lru_cache
@@ -29,8 +39,24 @@ GITHUB_REVIEW_URL = re.compile(
 MAX_COMMENT_LENGTH = 4000
 REQUEST_TIMEOUT_SECONDS = 10
 APP_USER_AGENT = "CodeReviewQualityAnalyzer/0.1"
+PIPELINE_MODEL_ID = "facebook/bart-large-mnli"
+
+# Simple emojis to make results easier to scan at a glance.
+TYPE_EMOJI = {
+    "Logic/Bug": "🐞",
+    "Suggestion": "💡",
+    "Style/Nitpick": "✏️",
+    "Question": "❓",
+    "Praise": "🙌",
+}
+SENTIMENT_EMOJI = {
+    "Positive": "🙂",
+    "Neutral": "😐",
+    "Negative": "🙁",
+}
 
 def _extract_comment_id(fragment: str) -> Tuple[str, str]:
+    """Parse the fragment from a PR URL and extract the comment type and id."""
     if not fragment:
         raise ValueError("URL must include a fragment pointing to a specific comment.")
 
@@ -51,6 +77,7 @@ def _extract_comment_id(fragment: str) -> Tuple[str, str]:
     )
 
 def _github_headers() -> Dict[str, str]:
+    """Build GitHub headers, optionally adding a bearer token to increase limits."""
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": APP_USER_AGENT,
@@ -62,6 +89,13 @@ def _github_headers() -> Dict[str, str]:
 
 
 def fetch_comment_from_github(url: str) -> str:
+    """Fetch a PR review comment body from a public GitHub URL.
+
+    Supported fragments:
+      - #discussion_r<ID>
+      - #issuecomment-<ID>
+      - #pullrequestreview-<ID>
+    """
     match = GITHUB_REVIEW_URL.match(url.strip())
     if not match:
         raise ValueError("Only GitHub pull request comment URLs are supported at the moment.")
@@ -107,15 +141,31 @@ def fetch_comment_from_github(url: str) -> str:
 
 @lru_cache(maxsize=1)
 def get_zero_shot_pipeline():
-    return pipeline("zero-shot-classification", model="facebook/bart-large-mnli", device=-1)
+    """Lazily load the zero-shot pipeline on CPU."""
+    return pipeline("zero-shot-classification", model=PIPELINE_MODEL_ID, device=-1)
 
 def build_table(labels: List[str], scores: List[float]) -> List[List[str]]:
+    """Convert labels + scores into a 2D table for display."""
     rows: List[List[str]] = []
     for label, score in zip(labels, scores):
         rows.append([label, f"{score:.2%}"])
     return rows
 
+def _format_summary(best_type: str, best_type_score: float, best_sentiment: str, best_sentiment_score: float) -> str:
+    """Build a professional, emoji-enhanced Markdown summary."""
+    type_emoji = TYPE_EMOJI.get(best_type, "")
+    sent_emoji = SENTIMENT_EMOJI.get(best_sentiment, "")
+    return (
+        f"### Result\n"
+        f"- Feedback Type: {type_emoji} {best_type} ({best_type_score:.1%})\n"
+        f"- Sentiment: {sent_emoji} {best_sentiment} ({best_sentiment_score:.1%})\n"
+        f"\n"
+        f"Model: `{PIPELINE_MODEL_ID}` · Device: CPU · Method: zero-shot\n"
+    )
+
+
 def classify_comment(comment: str) -> Dict[str, object]:
+    """Run zero-shot classification for feedback type and sentiment."""
     classifier = get_zero_shot_pipeline()
 
     type_result = classifier(comment, TYPE_LABELS, multi_label=False)
@@ -130,10 +180,7 @@ def classify_comment(comment: str) -> Dict[str, object]:
     type_table = build_table(type_result["labels"], type_result["scores"])
     sentiment_table = build_table(sentiment_result["labels"], sentiment_result["scores"])
 
-    summary = (
-        f"**Feedback Type:** {best_type} ({best_type_score:.1%} confidence)\n"
-        f"**Sentiment:** {best_sentiment} ({best_sentiment_score:.1%} confidence)\n"
-    )
+    summary = _format_summary(best_type, best_type_score, best_sentiment, best_sentiment_score)
 
     return {
         "summary": summary,
@@ -142,6 +189,13 @@ def classify_comment(comment: str) -> Dict[str, object]:
     }
 
 def analyze_comment(comment_text: str, review_url: str):
+    """Main handler called from the UI.
+
+    Rules:
+      - If both fields are provided, prefer the pasted text (URL is fetched for preview only).
+      - If only URL is provided, attempt to fetch the comment body.
+      - Validate size and emit structured outputs.
+    """
     comment_text = (comment_text or "").strip()
     review_url = (review_url or "").strip()
 
@@ -194,48 +248,111 @@ def analyze_comment(comment_text: str, review_url: str):
         fetched_preview,
     )
 
-with gr.Blocks(title="Code Review Quality Analyzer") as demo:
+def _clear():
+    """Reset inputs and outputs to a clean state."""
+    return "", "", "", [], [], "", ""
+
+
+theme = gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")
+
+with gr.Blocks(title="Code Review Quality Analyzer", theme=theme) as demo:
     gr.Markdown(
         "# Code Review Quality Analyzer\n"
-        "Paste a code review comment or provide a GitHub review URL to classify the feedback type and sentiment.\n"
-        "This demo uses the open-source zero-shot classifier `facebook/bart-large-mnli` so it runs on CPU-only Spaces."
+        "Classify a code review comment by feedback type and sentiment.\n\n"
+        "- Runs on CPU (no GPU needed) using zero-shot classification.\n"
+        f"- Model: `{PIPELINE_MODEL_ID}` · Categories are configurable."
     )
 
-    with gr.Row():
-        comment_input = gr.Textbox(
-            label="Review Comment Text",
-            placeholder="Paste a single review comment...",
-            lines=6,
-        )
-        url_input = gr.Textbox(
-            label="GitHub Review URL",
-            placeholder="https://github.com/org/repo/pull/123#discussion_r456",
-            lines=2,
-        )
+    with gr.Row(equal_height=True):
+        with gr.Column(scale=1):
+            with gr.Tabs():
+                with gr.Tab("Paste Comment"):
+                    comment_input = gr.Textbox(
+                        label="Review Comment Text",
+                        placeholder="Paste a single review comment...",
+                        lines=8,
+                        autofocus=True,
+                    )
+                with gr.Tab("GitHub URL"):
+                    url_input = gr.Textbox(
+                        label="Public GitHub PR Comment URL",
+                        placeholder="https://github.com/org/repo/pull/123#discussion_r456",
+                        lines=2,
+                        info="Works for #discussion_r<ID> and #issuecomment-<ID> on public repos.",
+                    )
 
-    analyze_button = gr.Button("Analyze Review")
+            gr.Markdown("### Examples")
+            gr.Examples(
+                examples=[
+                    [
+                        "This will break when `user` is None. Consider checking for None before calling `get_id()`.",
+                        "",
+                    ],
+                    [
+                        "Nice cleanup here — this reads much better now. Thanks!",
+                        "",
+                    ],
+                    [
+                        "Nit: rename `x` to something more descriptive like `retry_interval`.",
+                        "",
+                    ],
+                    [
+                        "Why do we need this extra flag? Doesn't the existing `bar` already handle that case?",
+                        "",
+                    ],
+                    [
+                        "Consider extracting this logic into a helper function to avoid duplication across handlers.",
+                        "",
+                    ],
+                    [
+                        "This is a risky approach; I recommend reverting and discussing alternatives.",
+                        "",
+                    ],
+                ],
+                inputs=[comment_input, url_input],
+                run_on_click=False,
+            )
 
-    summary_output = gr.Markdown(label="Classification Summary")
-    type_output = gr.Dataframe(
-        headers=["Label", "Confidence"],
-        label="Feedback Type Confidence",
-        datatype=["str", "str"],
-        interactive=False,
-    )
-    sentiment_output = gr.Dataframe(
-        headers=["Label", "Confidence"],
-        label="Sentiment Confidence",
-        datatype=["str", "str"],
-        interactive=False,
-    )
-    preview_output = gr.Textbox(label="Analyzed Comment", lines=6)
-    fetched_preview_output = gr.Textbox(label="Fetched GitHub Comment", lines=6)
+            with gr.Row():
+                analyze_button = gr.Button("Analyze Review", variant="primary")
+                clear_button = gr.Button("Clear")
+
+        with gr.Column(scale=1):
+            summary_output = gr.Markdown(label="Classification Summary")
+            with gr.Row():
+                type_output = gr.Dataframe(
+                    headers=["Label", "Confidence"],
+                    label="Feedback Type Confidence",
+                    datatype=["str", "str"],
+                    interactive=False,
+                )
+                sentiment_output = gr.Dataframe(
+                    headers=["Label", "Confidence"],
+                    label="Sentiment Confidence",
+                    datatype=["str", "str"],
+                    interactive=False,
+                )
+            with gr.Accordion("Preview", open=False):
+                preview_output = gr.Textbox(label="Analyzed Comment", lines=6)
+                fetched_preview_output = gr.Textbox(label="Fetched GitHub Comment", lines=6)
+
+            with gr.Accordion("Tips", open=False):
+                gr.Markdown(
+                    "- Use concise, single-comment inputs for best results.\n"
+                    "- For organization-wide insights, aggregate predictions across many comments.\n"
+                    "- Replace the zero-shot model with a fine-tuned one for higher accuracy on your data."
+                )
 
     analyze_button.click(
         analyze_comment,
         inputs=[comment_input, url_input],
         outputs=[summary_output, type_output, sentiment_output, preview_output, fetched_preview_output],
     )
+    clear_button.click(
+        _clear,
+        inputs=None,
+        outputs=[comment_input, url_input, summary_output, type_output, sentiment_output, preview_output, fetched_preview_output],
+    )
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.queue(max_size=16).launch()

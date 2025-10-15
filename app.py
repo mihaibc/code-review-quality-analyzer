@@ -266,14 +266,14 @@ with gr.Blocks(title="Code Review Quality Analyzer", theme=theme) as demo:
     with gr.Row(equal_height=True):
         with gr.Column(scale=1):
             with gr.Tabs():
-                with gr.Tab("Paste Comment"):
+                with gr.TabItem("Paste Comment"):
                     comment_input = gr.Textbox(
                         label="Review Comment Text",
                         placeholder="Paste a single review comment...",
                         lines=8,
                         autofocus=True,
                     )
-                with gr.Tab("GitHub URL"):
+                with gr.TabItem("GitHub URL"):
                     url_input = gr.Textbox(
                         label="Public GitHub PR Comment URL",
                         placeholder="https://github.com/org/repo/pull/123#discussion_r456",
@@ -321,16 +321,22 @@ with gr.Blocks(title="Code Review Quality Analyzer", theme=theme) as demo:
             summary_output = gr.Markdown(label="Classification Summary")
             with gr.Row():
                 type_output = gr.Dataframe(
-                    headers=["Label", "Confidence"],
+                    column_names=["Label", "Confidence"],
                     label="Feedback Type Confidence",
                     datatype=["str", "str"],
                     interactive=False,
+                    row_count=(0, "dynamic"),
+                    col_count=(2, "fixed"),
+                    value=[],
                 )
                 sentiment_output = gr.Dataframe(
-                    headers=["Label", "Confidence"],
+                    column_names=["Label", "Confidence"],
                     label="Sentiment Confidence",
                     datatype=["str", "str"],
                     interactive=False,
+                    row_count=(0, "dynamic"),
+                    col_count=(2, "fixed"),
+                    value=[],
                 )
             with gr.Accordion("Preview", open=False):
                 preview_output = gr.Textbox(label="Analyzed Comment", lines=6)

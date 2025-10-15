@@ -321,7 +321,7 @@ with gr.Blocks(title="Code Review Quality Analyzer", theme=theme) as demo:
             summary_output = gr.Markdown(label="Classification Summary")
             with gr.Row():
                 type_output = gr.Dataframe(
-                    column_names=["Label", "Confidence"],
+                    headers=["Label", "Confidence"],
                     label="Feedback Type Confidence",
                     datatype=["str", "str"],
                     interactive=False,
@@ -330,7 +330,7 @@ with gr.Blocks(title="Code Review Quality Analyzer", theme=theme) as demo:
                     value=[],
                 )
                 sentiment_output = gr.Dataframe(
-                    column_names=["Label", "Confidence"],
+                    headers=["Label", "Confidence"],
                     label="Sentiment Confidence",
                     datatype=["str", "str"],
                     interactive=False,

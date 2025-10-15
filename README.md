@@ -1,3 +1,14 @@
+---
+title: Code Review Quality Analyzer
+emoji: 🧠
+colorFrom: purple
+colorTo: indigo
+sdk: gradio
+sdk_version: "4.0.0"
+app_file: app.py
+pinned: false
+---
+
 # Code Review Quality Analyzer
 
 A Hugging Face Space (Gradio) app that classifies individual code review comments to help engineering leaders understand the quality of their review culture.
